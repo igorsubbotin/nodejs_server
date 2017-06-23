@@ -1,0 +1,31 @@
+{
+  "name": "get-post-server",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Igor Subbotin",
+  "license": "ISC",
+  "devDependencies": {
+    "chai": "^4.0.2",
+    "coffee": "^4.0.1",
+    "eslint": "^4.0.0",
+    "eslint-config-google": "^0.8.0",
+    "gulp-coffee": "^2.3.4",
+    "gulp-env": "^0.4.0",
+    "gulp-run": "^1.7.1",
+    "gulp-util": "^3.0.8",
+    "istanbul": "^0.4.5",
+    "mocha": "^3.4.2",
+    "sinon": "^2.3.5",
+    "supertest": "^3.0.0"
+  },
+  "dependencies": {
+    "gulp": "^3.9.1",
+    "gulp-mocha": "^4.3.1",
+    "gulp-nodemon": "^2.2.1",
+    "mime": "^1.3.6"
+  }
+}

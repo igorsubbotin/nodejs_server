@@ -2,4 +2,6 @@
 
 const server = require('./server');
 
-server.listen(3000, '127.0.0.1', () => console.log('http://127.0.0.1:3000/'));
+var port = process.env.PORT || 3000;
+var ip = process.env.IP || '127.0.0.1';
+server.listen(port, ip, () => console.log(port, ip));

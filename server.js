@@ -1,7 +1,15 @@
+'use strict';
+
 const url = require('url');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const mime = require('mime');
+
+const root = __dirname;
+const indexFilepath = path.join(root, 'public/index.html');
+const filesRoot = path.join(root, "files");
+const limitFileSize = 1024 * 1024;
 
 module.exports = http.createServer((req, res) => {
   let pathname;
@@ -12,29 +20,41 @@ module.exports = http.createServer((req, res) => {
     res.end('Bad request');
     return;
   }
-
-  if (~pathname.indexOf('\0')) {
-    res.statusCode = 400;
-    res.end('Bad request');
+  
+  if (req.method == 'GET' && pathname == '/') {
+    sendFile(indexFilepath, res);
     return;
   }
+  
+  let filename = pathname.slice(1);
+  if (filename.includes('/') || filename.includes('..')) {
+    res.statusCode = 400;
+    res.end('Nested paths are not allowed');
+    return;
+  } 
 
   switch(req.method) {
     case 'GET':
-      if (pathname == '/') {
-        sendFile('/public/index.html', res);
-        return;
-      }
-      
-      sendResourceFile(pathname, res);
+      let filepath = path.join(filesRoot, filename);
+      sendFile(filepath, res);
       break;
     
     case 'POST':
-      saveResourceFile(pathname, req, res);
+      if (!filename) {
+        res.statusCode = 404;
+        res.end('File not found');
+        return;
+      }
+      receiveFile(path.join(filesRoot, filename), req, res); 
       break;
 
     case 'DELETE':
-      deleteResourceFile(pathname, res);
+      if (!filename) {
+        res.statusCode = 404;
+        res.end('File not found');
+        return;
+      }
+      deleteFile(path.join(filesRoot, filename), res);
       break;
 
     default:
@@ -44,124 +64,98 @@ module.exports = http.createServer((req, res) => {
   }
 });
 
-function sendResourceFile(pathname, res) {
-  pathname = getResourcePathname(pathname);
-  if (!pathname) {
-    res.statusCode = 400;
-    res.end('Bad request');
-    return;
-  }
-  sendFile(pathname, res);
-}
+function sendFile(filepath, res) {
+  let fileStream = fs.createReadStream(filepath);
+  fileStream.pipe(res);
 
-function sendFile(pathname, res) {
-  var mime = require('mime').lookup(pathname);
-  res.setHeader('Content-Type', mime + "; charset=utf-8");
-  pathname = getFullPathname(pathname);
-
-  fs.stat(pathname, (err, stats) => {
-    if (err || !stats.isFile()) {
-      res.statusCode = 404;
-      res.end("File not found");
-      return;
-    }
-
-    let file = fs.createReadStream(pathname);
-    console.log("Sending file: " + pathname);
-
-    file.pipe(res);
-
-    file.on('error', (err) => {
-      res.statusCode = 500;
-      res.end('Server error');
-      console.error(err);
-    })
-
-    res.on('close', () => {
-      file.destroy();
-    })
-  });
-}
-
-function saveResourceFile(pathname, req, res) {
-  let maxSize = 1024 * 1024;
-  let size = req.headers['content-length'];
-  if (size > maxSize) {
-    console.log('Resource stream exceeded limit (' + size + ')');
-    res.statusCode = 413;
-    res.end("File is too big to upload");
-    return;
-  }
-
-  pathname = getResourcePathname(pathname);
-  if (!pathname) {
-    res.statusCode = 400;
-    res.end('Bad request');
-    return;
-  }
-
-  pathname = getFullPathname(pathname);
-  
-  fs.stat(pathname, (err, stats) => {
-    if (err == null) {
-      res.statusCode = 409;
-      res.end("File already exists");
-      return;
-    }
-
-    let file = fs.createWriteStream(pathname), size = 0;
-    console.log("Uploading file: " + pathname);
-    req.on('data', function(data) {
-        size += data.length;
-        if (size > maxSize) {
-            res.statusCode = 413;
-            res.end("File is too big to upload");
-            // Question: How to stop the pipe here and delete file (in case if req.headers['content-length'] check
-            // didn't work out and we got to this place)?
+  fileStream
+    .on('error', err => {
+      if (err.code === 'ENOENT') {
+        res.statusCode = 404;
+        res.end('File not found');
+      } else {
+        console.error(err);
+        if (!res.headersSent) {
+          res.statusCode = 500;
+          res.end('Server error');
+        } else {
+          res.end();
         }
+
+      }
+    })
+    .on('open', () => {
+      res.setHeader('Content-Type', mime.lookup(filepath));
     });
-    req.pipe(file);   
+
+  res
+    .on('close', () => {
+      fileStream.destroy();
+    });
+}
+
+function receiveFile(filepath, req, res) {
+  if (req.headers['content-length'] > limitFileSize) {
+    res.statusCode = 413;
+    res.end('File is too big!');
+    return;
+  }
+
+  let size = 0;
+  let writeStream = new fs.WriteStream(filepath, {flags: 'wx'});
+
+  req
+    .on('data', chunk => {
+      size += chunk.length;
+
+      if (size > limitFileSize) {
+        res.statusCode = 413;
+        res.setHeader('Connection', 'close');
+        res.end('File is too big!');
+        writeStream.destroy();
+        fs.unlink(filepath, err => { // eslint-disable-line
+          /* ignore error */
+        });
+
+      }
+    })
+    .on('close', () => {
+      writeStream.destroy();
+      fs.unlink(filepath, err => { // eslint-disable-line
+        /* ignore error */
+      });
+    })
+    .pipe(writeStream);
+
+  writeStream
+    .on('error', err => {
+      if (err.code === 'EEXIST') {
+        res.statusCode = 409;
+        res.end('File exists');
+      } else {
+        console.error(err);
+        if (!res.headersSent) {
+          res.writeHead(500, {'Connection': 'close'});
+          res.write('Internal error');
+        }
+        fs.unlink(filepath, err => { // eslint-disable-line
+          /* ignore error */
+          res.end();
+        });
+      }
+
+    })
+    .on('close', () => {
+      res.end('OK');
+    });
+} 
+
+function deleteFile(filepath, res) {
+  fs.unlink(filepath, err => {
+    if (err) {
+      res.statusCode = 500;
+      res.body = 'Server error';
+    }
     res.end();
   });
-}
-
-function deleteResourceFile(pathname, res) {
-  pathname = getResourcePathname(pathname);
-  if (!pathname) {
-    res.statusCode = 400;
-    res.end('Bad request');
-    return;
-  }
-
-  pathname = getFullPathname(pathname);
-
-  fs.stat(pathname, (err, stats) => {
-    if (err || !stats.isFile()) {
-      res.statusCode = 404;
-      res.end("File not found");
-      return;
-    }
-
-    fs.unlink(pathname, (err) => {
-      if (err) {
-        res.statusCode = 500;
-        res.end("Server error");
-        return;
-      }
-      console.log("File deleted: " + pathname);
-      res.end();
-    });
-  });
-}
-
-function getResourcePathname(pathname) {
-  pathname = path.join("/files", pathname);
-  if (pathname != path.join("/files", path.basename(pathname))) {
-    return null;
-  }
-  return pathname;
-}
-
-function getFullPathname(pathname) {
-  return path.normalize(path.join(__dirname, pathname));
 }

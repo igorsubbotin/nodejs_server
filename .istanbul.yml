@@ -2,7 +2,7 @@ verbose: false
 instrumentation:
     root: .
     default-excludes: true
-    excludes: ['gulpfile.js', '**/routes/**']
+    excludes: ['gulpfile.js', 'index.js']
     embed-source: false
     variable: __coverage__
     compact: true

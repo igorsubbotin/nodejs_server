@@ -24,13 +24,13 @@ gulp.task('default', function() {
 
 gulp.task('test', function() {
     env({vars: {ENV: 'Test'}});
-    gulp.src('test/**/*.coffee', {read: false})
+    gulp.src('test/**/*.js', {read: false})
         .pipe(coffee({bare: true}).on('error', gutil.log))
         .pipe(gulpMocha({reporter: 'nyan'}));
 });
 
 gulp.task('test-watch', function() {
-    gulp.watch(['./**/*.js', 'test/**/*.coffee'], ['test'])
+    gulp.watch(['./**/*.js', 'test/**/*.js'], ['test'])
     .on('error', gutil.log);
 });
 

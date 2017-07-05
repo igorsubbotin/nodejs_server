@@ -1,4 +1,5 @@
---require coffee-script 
---compilers coffee:coffee-script/register
---recursive
 --reporter spec
+--colors
+--timeout 100000
+--require should
+--recursive 
